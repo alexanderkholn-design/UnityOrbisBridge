@@ -225,11 +225,34 @@ void BeginDownload(const char *url, const char *pathWithFile)
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+// Read domain-scoped cookies from a local Netscape-format file.
+const char *cookieFile = "/user/data/FPKGi/cookies.txt";
 
+if (access(cookieFile, R_OK) == 0)
+{
+    CURLcode cookieResult =
+        curl_easy_setopt(curl, CURLOPT_COOKIEFILE, cookieFile);
+
+    printAndLogFmt(1, "Cookie file configured; result: %d",
+                   static_cast<int>(cookieResult));
+}
+else
+{
+    printAndLogFmt(2, "Cookie file missing or unreadable: %s",
+                   cookieFile);
+}
     if (resume_offset > 0)
         curl_easy_setopt(curl, CURLOPT_RESUME_FROM, resume_offset);
 
     CURLcode result = curl_easy_perform(curl);
+    long httpStatus = 0;
+    CURLcode infoResult =
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpStatus);
+
+    printAndLogFmt(1, "Download result: CURL=%d, HTTP=%ld, info=%d",
+                   static_cast<int>(result),
+                   httpStatus,
+                   static_cast<int>(infoResult));
     if (result == CURLE_OK)
     {
         printAndLogFmt(1, ("The download (" + std::string(url) +
