@@ -1,8 +1,6 @@
 name: Build, Push & Deploy UnityOrbisBridge
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -44,10 +42,10 @@ jobs:
 
     - name: Set Environment Variables
       run: |
-        echo "Setting up environment variables"
-        echo "OO_PS4_TOOLCHAIN=${{ github.workspace }}/OpenOrbis/PS4Toolchain" >> $GITHUB_ENV
-        echo "POLARSSL_INCLUDE_DIRS=${OO_PS4_TOOLCHAIN}/include" >> $GITHUB_ENV
-        echo "POLARSSL_LIBRARY=${OO_PS4_TOOLCHAIN}/lib/libpolarssl.a" >> $GITHUB_ENV
+        TOOLCHAIN="${GITHUB_WORKSPACE}/OpenOrbis/PS4Toolchain"
+        echo "OO_PS4_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+        echo "POLARSSL_INCLUDE_DIRS=$TOOLCHAIN/include" >> "$GITHUB_ENV"
+        echo "POLARSSL_LIBRARY=$TOOLCHAIN/lib/libpolarssl.a" >> "$GITHUB_ENV"
 
     - name: Cache LLVM and Clang
       id: cache-llvm
@@ -151,101 +149,3 @@ jobs:
       with:
         name: UnityOrbisBridge-PRX
         path: source/plugin/UnityOrbisBridge.prx
-
-  build-dll:
-    runs-on: windows-latest
-    needs: build-prx
-
-    steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    - name: Check for Visual Studio Build Tools
-      id: check-vsbuildtools
-      run: |
-        $vsPath = & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
-        if ($vsPath) { echo "VSBuildToolsFound=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 }
-
-    - name: Cache Visual Studio Build Tools
-      id: cache-vsbuildtools
-      uses: actions/cache@v4
-      with:
-        path: C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools
-        key: windows-vsbuildtools-16.11.5
-        restore-keys: |
-          windows-vsbuildtools-16.11
-
-    - name: Install Visual Studio Build Tools
-      if: steps.check-vsbuildtools.outputs.VSBuildToolsFound != 'true' && steps.cache-vsbuildtools.outputs.cache-hit != 'true'
-      run: |
-        choco install visualstudio2019buildtools --version=16.11.5.0 -y --no-progress
-        Start-Process "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe" -ArgumentList "modify", "--quiet", "--wait", "--installPath", "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools", "--add", "Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools", "--add", "Microsoft.VisualStudio.Workload.NetCoreBuildTools" -NoNewWindow -Wait
-
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.3
-
-    - name: Build Solution in Release Configuration
-      run: |
-        msbuild.exe source/Unity-API/UnityOrbisBridge.sln /nologo /nr:false /p:Configuration=Release /p:DeployOnBuild=true /p:DeployDefaultTarget=Build /p:platform="Any CPU" /p:TargetFrameworkVersion="v3.5" -m
-
-    - name: Check Build Output
-      run: |
-        echo "Checking for DLL in the build folder"
-        dir source/Unity-API/bin/Release
-
-    - name: Upload DLL as Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: UnityOrbisBridge-DLL
-        path: source/Unity-API/UnityOrbisBridge.dll
-
-  upload-artifacts:
-    needs: [build-prx, build-dll]
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    - name: Download PRX Artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: UnityOrbisBridge-PRX
-        path: artifacts
-
-    - name: Download DLL Artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: UnityOrbisBridge-DLL
-        path: artifacts
-
-    - name: Ensure Target Directories Exist
-      run: |
-        mkdir -p source/plugin source/Unity-API
-
-    - name: Move Artifacts to Target Paths
-      run: |
-        mv artifacts/UnityOrbisBridge.prx source/plugin/ || echo "PRX file not found!"
-        mv artifacts/UnityOrbisBridge.dll source/Unity-API/ || echo "DLL file not found!"
-
-    - name: Commit & Push Compiled Binaries
-      run: |
-        git config user.name "GitHub Actions"
-        git config user.email "github-actions@github.com"
-        git add source/plugin/UnityOrbisBridge.prx source/Unity-API/UnityOrbisBridge.dll
-        git commit -m "Final commit for UnityOrbisBridge build artifacts" || echo "No changes to commit"
-        git push origin $GITHUB_REF
-
-    - name: Create Archive
-      run: |
-        echo "Creating archive for UnityOrbisBridge..."
-        mkdir -p UnityOrbisBridge
-        cp source/plugin/UnityOrbisBridge.prx UnityOrbisBridge/
-        cp source/Unity-API/UnityOrbisBridge.dll UnityOrbisBridge/
-        zip -r UnityOrbisBridge.zip UnityOrbisBridge
-        rm -rf UnityOrbisBridge
-
-    - name: Upload Combined Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: UnityOrbisBridge
-        path: UnityOrbisBridge.zip
